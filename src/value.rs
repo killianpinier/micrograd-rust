@@ -9,7 +9,7 @@ use std::{
 pub enum Operation {
     Add(ValueWrapper, ValueWrapper),
     Mul(ValueWrapper, ValueWrapper),
-    Pow(ValueWrapper, f64),
+    Pow(ValueWrapper, f32),
     Tanh(ValueWrapper),
 }
 
@@ -18,13 +18,13 @@ pub struct ValueWrapper(Rc<RefCell<Value>>);
 
 #[derive(Debug)]
 pub struct Value {
-    pub data: f64,
-    pub grad: f64,
-    pub operation: Option<Operation>,
+    data: f32,
+    grad: f32,
+    operation: Option<Operation>,
 }
 
 impl Value {
-    fn new(data: f64, operation: Option<Operation>) -> Self {
+    fn new(data: f32, operation: Option<Operation>) -> Self {
         Self {
             data,
             grad: 0.0,
@@ -34,12 +34,21 @@ impl Value {
 }
 
 impl ValueWrapper {
-    pub fn new(data: f64, operation: Option<Operation>) -> Self {
+    pub fn new(data: f32, operation: Option<Operation>) -> Self {
         Self(Rc::new(RefCell::new(Value::new(data, operation))))
     }
 
-    pub fn get_data(&self) -> f64 {
+    pub fn data(&self) -> f32 {
         self.borrow().data
+    }
+
+    pub fn update_data(&self, learning_step: f32) {
+        let grad = self.borrow().grad;
+        self.borrow_mut().data -= learning_step * grad;
+    }
+
+    pub fn reset_grad(&self) {
+        self.borrow_mut().grad = 0.0;
     }
 
     pub fn loss(self, pred: Self) -> Self {
@@ -58,20 +67,20 @@ impl ValueWrapper {
         }
     }
 
-    fn set_grad_and_backpropagate(&mut self, grad: f64) {
+    fn set_grad_and_backpropagate(&mut self, grad: f32) {
         self.borrow_mut().grad += grad;
         self.backward();
     }
 
-    pub fn pow(self, power: f64) -> Self {
+    pub fn pow(self, power: f32) -> Self {
         Self::new(
-            self.get_data().powf(power),
+            self.data().powf(power),
             Some(Operation::Pow(self.clone(), power)),
         )
     }
 
     pub fn tanh(self) -> Self {
-        Self::new(self.get_data().tanh(), Some(Operation::Tanh(self.clone())))
+        Self::new(self.data().tanh(), Some(Operation::Tanh(self.clone())))
     }
 }
 
@@ -80,7 +89,7 @@ impl Add for ValueWrapper {
 
     fn add(self, rhs: Self) -> Self::Output {
         let inner = Rc::new(RefCell::new(Value::new(
-            self.get_data() + rhs.get_data(),
+            self.data() + rhs.data(),
             Some(Operation::Add(self.clone(), rhs.clone())),
         )));
         Self(inner)
@@ -92,7 +101,7 @@ impl Sub for ValueWrapper {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let inner = Rc::new(RefCell::new(Value::new(
-            self.get_data() - rhs.get_data(),
+            self.data() - rhs.data(),
             Some(Operation::Add(
                 self.clone(),
                 ValueWrapper::new(-1.0, None) * rhs.clone(),
@@ -107,7 +116,7 @@ impl Mul for ValueWrapper {
 
     fn mul(self, rhs: Self) -> Self::Output {
         let inner = Rc::new(RefCell::new(Value::new(
-            self.get_data() * rhs.get_data(),
+            self.data() * rhs.data(),
             Some(Operation::Mul(self.clone(), rhs.clone())),
         )));
         Self(inner)
@@ -116,7 +125,7 @@ impl Mul for ValueWrapper {
 
 impl Sum for ValueWrapper {
     fn sum<I: Iterator<Item = Self>>(mut iter: I) -> Self {
-        let mut result = iter.next().expect("Iterator cannot be empty");
+        let mut result = iter.next().expect("Cannot sum items of an empty iterator");
         while let Some(val) = iter.next() {
             result = result + val;
         }
@@ -124,8 +133,8 @@ impl Sum for ValueWrapper {
     }
 }
 
-impl From<f64> for ValueWrapper {
-    fn from(value: f64) -> Self {
+impl From<f32> for ValueWrapper {
+    fn from(value: f32) -> Self {
         Self::new(value, None)
     }
 }
@@ -139,7 +148,7 @@ impl Deref for ValueWrapper {
 }
 
 impl Operation {
-    pub fn backward(&mut self, out_grad: f64) {
+    pub fn backward(&mut self, out_grad: f32) {
         match self {
             Self::Add(lhs, rhs) => {
                 lhs.set_grad_and_backpropagate(out_grad);
@@ -150,12 +159,10 @@ impl Operation {
                 rhs.set_grad_and_backpropagate(lhs.borrow().data * out_grad);
             }
             Self::Pow(base, power) => {
-                base.set_grad_and_backpropagate(
-                    *power * base.get_data().powf(*power - 1.0) * out_grad,
-                );
+                base.set_grad_and_backpropagate(*power * base.data().powf(*power - 1.0) * out_grad);
             }
             Self::Tanh(value) => {
-                value.set_grad_and_backpropagate((1.0 - value.get_data().tanh().powi(2)) * out_grad)
+                value.set_grad_and_backpropagate((1.0 - value.data().tanh().powi(2)) * out_grad)
             }
         }
     }
@@ -178,7 +185,7 @@ mod tests {
         let w1x1w2x2 = w1x1 + w2x2;
         let n = w1x1w2x2 + b;
 
-        assert_eq!(n.get_data(), 38.0)
+        assert_eq!(n.data(), 38.0)
     }
 
     #[test]
@@ -213,7 +220,7 @@ mod tests {
         let mut o = n.tanh();
         o.backpropagate();
 
-        assert_eq!(format!("{:.4}", o.get_data()), "0.7071");
+        assert_eq!(format!("{:.4}", o.data()), "0.7071");
         assert_eq!(format!("{:.5}", w1.borrow().grad), "1.00000");
         assert_eq!(format!("{:.5}", w2.borrow().grad), "0.00000");
         assert_eq!(format!("{:.5}", x1.borrow().grad), "-1.50000");
@@ -221,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_backpropagation_2() {
+    fn test_loss_backpropagation() {
         let w1 = ValueWrapper::from(-3.0);
         let x1 = ValueWrapper::from(2.0);
         let w2 = ValueWrapper::from(1.0);
@@ -230,22 +237,16 @@ mod tests {
         let w1x1 = w1.clone() * x1.clone();
         let w2x2 = w2.clone() * x2.clone();
         let w1x1w2x2 = w1x1 + w2x2;
-        let mut n = w1x1w2x2 + b;
+        let n = w1x1w2x2 + b;
 
-        let mut o = n.clone().tanh();
+        let o = n.clone().tanh();
         let mut loss = o.clone().loss(ValueWrapper::from(1.0));
         loss.backpropagate();
 
-        assert_eq!(format!("{:.4}", o.get_data()), "0.7071");
-        // assert_eq!(format!("{:.5}", w1.borrow().grad), "1.00000");
-        // assert_eq!(format!("{:.5}", w2.borrow().grad), "0.00000");
-        // assert_eq!(format!("{:.5}", x1.borrow().grad), "-1.50000");
-        // assert_eq!(format!("{:.5}", x2.borrow().grad), "0.50000");
-
-        let w1_grad = 2.0 * (o.get_data() - 1.0) * (1.0 - o.get_data().powi(2)) * x1.get_data();
-        let w2_grad = 2.0 * (o.get_data() - 1.0) * (1.0 - o.get_data().powi(2)) * x2.get_data();
-        let x1_grad = 2.0 * (o.get_data() - 1.0) * (1.0 - o.get_data().powi(2)) * w1.get_data();
-        let x2_grad = 2.0 * (o.get_data() - 1.0) * (1.0 - o.get_data().powi(2)) * w2.get_data();
+        let w1_grad = 2.0 * (o.data() - 1.0) * (1.0 - o.data().powi(2)) * x1.data();
+        let w2_grad = 2.0 * (o.data() - 1.0) * (1.0 - o.data().powi(2)) * x2.data();
+        let x1_grad = 2.0 * (o.data() - 1.0) * (1.0 - o.data().powi(2)) * w1.data();
+        let x2_grad = 2.0 * (o.data() - 1.0) * (1.0 - o.data().powi(2)) * w2.data();
 
         assert_eq!(x1_grad, x1.borrow().grad);
         assert_eq!(x2_grad, x2.borrow().grad);
@@ -255,16 +256,13 @@ mod tests {
     }
 
     #[test]
-    fn test_power() {
+    fn test_power_operation() {
         let x1 = ValueWrapper::from(2.0);
         let x2 = ValueWrapper::from(3.0);
 
         let mut result = (x1.clone() - x2.clone()).pow(2.0);
         result.backpropagate();
 
-        assert_eq!(
-            x1.clone().borrow().grad,
-            2.0 * (x1.get_data() - x2.get_data())
-        )
+        assert_eq!(x1.clone().borrow().grad, 2.0 * (x1.data() - x2.data()))
     }
 }

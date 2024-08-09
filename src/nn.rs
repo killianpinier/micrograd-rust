@@ -94,14 +94,14 @@ impl MLP {
     pub fn train(
         &mut self,
         training_set: &TrainingSet,
-        gradient_descent_step: f64,
+        gradient_descent_step: f32,
         gradient_descent_count: usize,
     ) {
         for i in 0..gradient_descent_count {
             let mut parameters = self.get_parameters();
             let loss = self.loss(training_set);
             if i < 15 {
-                println!("{}", loss.get_data());
+                println!("{}", loss.data());
             }
             self.backpropagate(loss, &mut parameters);
             self.update_network(parameters, gradient_descent_step);
@@ -132,10 +132,11 @@ impl MLP {
         loss.backpropagate();
     }
 
-    fn update_network(&mut self, parameters: Vec<ValueWrapper>, gradient_descent_step: f64) {
+    fn update_network(&mut self, parameters: Vec<ValueWrapper>, learning_step: f32) {
         parameters.into_iter().for_each(|p| {
-            let mut value = p.borrow_mut();
-            value.data += -1.0 * gradient_descent_step * value.grad;
+            //let mut value = p.borrow_mut();
+            p.update_data(learning_step);
+            //value.data += -1.0 * gradient_descent_step * value.grad;
         })
     }
 
@@ -160,7 +161,8 @@ impl MLP {
 
     fn reset_grads(&self, parameters: &mut Vec<ValueWrapper>) {
         parameters.iter_mut().for_each(|p| {
-            p.borrow_mut().grad = 0.0;
+            p.reset_grad();
+            // p.borrow_mut().grad = 0.0;
         });
     }
 }
@@ -170,8 +172,8 @@ impl Entry {
         Self(Vec::new())
     }
 }
-impl From<Vec<f64>> for Entry {
-    fn from(value: Vec<f64>) -> Self {
+impl From<Vec<f32>> for Entry {
+    fn from(value: Vec<f32>) -> Self {
         Self(
             value
                 .into_iter()
@@ -189,8 +191,8 @@ impl Deref for Entry {
     }
 }
 
-impl From<Vec<(Vec<f64>, f64)>> for TrainingSet {
-    fn from(value: Vec<(Vec<f64>, f64)>) -> Self {
+impl From<Vec<(Vec<f32>, f32)>> for TrainingSet {
+    fn from(value: Vec<(Vec<f32>, f32)>) -> Self {
         Self(
             value
                 .into_iter()
@@ -228,23 +230,23 @@ mod tests {
         let entries = Entry(vec![2.0.into(), 3.0.into(), (-1.0).into()]);
         let output = mlp.run(&entries);
 
-        let mut current_entries: Vec<f64> = entries.iter().map(|entry| entry.get_data()).collect();
+        let mut current_entries: Vec<f32> = entries.iter().map(|entry| entry.data()).collect();
 
         for layer in mlp.layers {
-            let mut entries: Vec<f64> = Vec::new();
+            let mut entries: Vec<f32> = Vec::new();
             for neuron in layer.neurons {
                 let mut temp = 0.0;
                 for (x, w) in current_entries.iter().zip(neuron.weights.into_iter()) {
-                    let mul = w.get_data() * x;
+                    let mul = w.data() * x;
                     temp += mul;
                 }
-                temp += neuron.b.get_data();
+                temp += neuron.b.data();
                 entries.push(temp.tanh());
             }
             current_entries = entries;
         }
 
-        assert_eq!(current_entries.first().unwrap().clone(), output.get_data())
+        assert_eq!(current_entries.first().unwrap().clone(), output.data())
     }
 
     #[test]
@@ -254,59 +256,23 @@ mod tests {
         let entries = Entry(vec![2.0.into(), 3.0.into(), (-1.0).into()]);
         let output = mlp.run(&entries);
 
-        let mut current_entries: Vec<f64> = entries.iter().map(|entry| entry.get_data()).collect();
+        let mut current_entries: Vec<f32> = entries.iter().map(|entry| entry.data()).collect();
 
         for layer in mlp.layers {
-            let mut entries: Vec<f64> = Vec::new();
+            let mut entries: Vec<f32> = Vec::new();
             for neuron in layer.neurons {
                 let mut temp = 0.0;
                 for (x, w) in current_entries.iter().zip(neuron.weights.into_iter()) {
-                    let mul = w.get_data() * x;
+                    let mul = w.data() * x;
                     temp += mul;
                 }
-                temp += neuron.b.get_data();
+                temp += neuron.b.data();
                 entries.push(temp.tanh());
             }
             current_entries = entries;
         }
 
         let calculated_loss = (current_entries.first().unwrap().clone() - 1.0).powi(2);
-        assert_eq!(
-            calculated_loss,
-            output.loss(ValueWrapper::from(1.0)).get_data()
-        )
+        assert_eq!(calculated_loss, output.loss(ValueWrapper::from(1.0)).data())
     }
-
-    // #[test]
-    // fn temp() {
-    //     let mut mlp = MLP::new(3, vec![4, 4, 1]);
-    //     let training_set = vec![
-    //         (vec![2.0, 3.0, -1.0], 1.0),
-    //         (vec![3.0, -1.0, 0.5], -1.0),
-    //         (vec![0.5, 1.0, 1.0], -1.0),
-    //         (vec![1.0, 1.0, -1.0], 1.0),
-    //     ];
-    //     let training_set = TrainingSet::from(training_set);
-
-    //     let output = mlp.run(&training_set[0].0);
-    //     let mut loss = output.loss(ValueWrapper::from(1.0));
-
-    //     let w = mlp
-    //         .layers
-    //         .iter()
-    //         .next()
-    //         .unwrap()
-    //         .neurons
-    //         .iter()
-    //         .next()
-    //         .unwrap()
-    //         .weights
-    //         .first()
-    //         .unwrap();
-    //     println!("{}", w.borrow().grad);
-    //     loss.backpropagate();
-    //     println!("{}", w.borrow().grad);
-
-    //     assert!(false)
-    // }
 }
